@@ -63,84 +63,74 @@ class Gazebo_Linefollow_Env(gazebo_env.GazeboEnv):
 
     def process_image(self, data):
         '''
-            @brief Coverts data into a opencv image and displays it
+            @brief Converts ROS image to OpenCV, analyzes last third for line,
+                draws sections and detected line, and returns state & done
             @param data : Image data from ROS
-
             @retval (state, done)
         '''
         try:
             cv_image = self.bridge.imgmsg_to_cv2(data, "bgr8")
         except CvBridgeError as e:
             print(e)
+            return [0]*10, True
 
-        # cv2.imshow("raw", cv_image)
-
-        NUM_BINS = 3
-        state = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-        done = False
-
-        # TODO: Analyze the cv_image and compute the state array and
-        # episode termination condition.
-        #
-        # The state array is a list of 10 elements indicating where in the
-        # image the line is:
-        # i.e.
-        #    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0] indicates line is on the left
-        #    [0, 0, 0, 0, 1, 0, 0, 0, 0, 0] indicates line is in the center
-        #
-        # The episode termination condition should be triggered when the line
-        # is not detected for more than 30 frames. In this case set the done
-        # variable to True.
-        #
-        # You can use the self.timeout variable to keep track of which frames
-        # have no line detected.
-
-        # define constants
         num_split = 10
-        height = cv_image.shape[0]
-        light_thresh = 100
+        height, width = cv_image.shape[:2]
+        light_thresh = 100  # threshold for detecting dark line
 
-        # grayscale my image
         gray_img = cv2.cvtColor(cv_image, cv2.COLOR_BGR2GRAY)
 
-        # call my splitting function, obtain list of 10 images from split
-        split_img_arr = self.split_img(gray_img, num_split)
+        # roi: last third of the image
+        last_third = gray_img[2*height//3:, :]
 
-        region_pixels = {} # section of line : number of line pixels dictionary
-        non_line_sections = 0 # keep track of how many sections do not contain line
+        #split into 10 sec using my function
+        split_img_arr = self.split_img(last_third, num_split)
 
-        section = 0
-        for img_section in split_img_arr:
-            last_row = img_section[height - 1, :]  #extract only last row for analysis
+        region_pixels = {}  # section : number of dark pixels
+        non_line_sections = 0
 
-            line_indices = np.where(last_row < light_thresh)[0] #find x-coords of where line (dark) is present in last row
-            
-            # update dictionary with section : # line pixels in section
-            region_pixels[section] = len(line_indices)
-
-            if (len(line_indices) == 0):
+        for section, img_section in enumerate(split_img_arr):
+            #count dark pixels in this section
+            line_pixels = np.sum(img_section < light_thresh)
+            region_pixels[section] = line_pixels
+            if line_pixels == 0:
                 non_line_sections += 1
 
-            section += 1
-
-        # find section (key) corresponding to max value of line pixels in dictionary
-        max_section = max(region_pixels, key=region_pixels.get)
-
-        # update state list so that at my max_section index we mark a 1, and 0's in all other sections.
-        state = [0] * num_split
-        state[max_section] = 1
-
-        # no line found in any section
-        if (non_line_sections == 10):
+        # Determine state
+        if non_line_sections == num_split:
             self.timeout += 1
+            state = [0] * num_split
+            max_section = -1
         else:
             self.timeout = 0
+            # find section with max line pixels
+            max_section = max(region_pixels, key=region_pixels.get)
+            state = [0] * num_split
+            state[max_section] = 1
 
-        if (self.timeout == 30):
+        done = False
+        if self.timeout >= 30:
             done = True
             self.timeout = 0
-        else:
-            done = False
+
+        # ---------------------- Visualization ----------------------
+        vis_image = cv_image.copy()
+        section_width = width // num_split
+        start_y = 2*height//3
+
+        # Draw vertical section lines
+        for i in range(1, num_split):
+            x = i * section_width
+            cv2.line(vis_image, (x, start_y), (x, height), (255, 0, 0), 2)
+
+        # Draw dot at detected section
+        if max_section >= 0:
+            dot_x = max_section * section_width + section_width // 2
+            dot_y = start_y + (height//6)  # middle of last third
+            cv2.circle(vis_image, (dot_x, dot_y), 5, (0, 0, 255), -1)
+
+        cv2.imshow("Line Detection", vis_image)
+        cv2.waitKey(1)
 
         return state, done
 
@@ -188,16 +178,17 @@ class Gazebo_Linefollow_Env(gazebo_env.GazeboEnv):
 
         state, done = self.process_image(data)
 
-        # Set the rewards for your action
         if not done:
+            #old reward scheme
             if action == 0:  # FORWARD
-                reward = 4
+               reward = 4
             elif action == 1:  # LEFT
-                reward = 2
+               reward = 2
             else:
-                reward = 2  # RIGHT
+               reward = 2  # RIGHT
         else:
             reward = -200
+
 
         return state, reward, done, {}
 

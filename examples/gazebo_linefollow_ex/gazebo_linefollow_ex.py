@@ -51,11 +51,7 @@ if __name__ == '__main__':
 
     for x in range(total_episodes):
         done = False
-        
-        if x == 0:
-            qlearn.saveQ("Current_best_policy.pkl")
-
-
+    
         cumulated_reward = 0  # Should going forward give more reward then L/R?
 
         if qlearn.epsilon > 0.05:

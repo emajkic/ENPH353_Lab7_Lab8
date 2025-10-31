@@ -94,15 +94,18 @@ class QLearn:
         #   rewards)
 
         # THE NEXT LINES NEED TO BE MODIFIED TO MATCH THE REQUIREMENTS ABOVE
-
+        # estimate of optimal future value
         maxqnew = max([self.getQ(state2, a) for a in self.actions])
-        self.learnQ(state1, action1, reward, reward + self.gamma*maxqnew)
+    
+        # Target value
+        target = reward + self.gamma * maxqnew
 
-    def learnQ(self, state, action, reward, value):
+        # Update Q-table
+        self.learnQ(state1, action1, target) # call my update Q function
+
+    def learnQ(self, state, action, value):
         # Q(s1, a1) += alpha * [reward(s1,a1) + gamma* max(Q(s2)) - Q(s1,a1)]
-        oldv = self.q.get((state, action), None)
 
-        if oldv is None:
-            self.q[(state, action)] = reward + self.gamma * max([self.getQ(state, a) for a in self.actions])
-        else:
-            self.q[(state, action)] = oldv + self.alpha * (value - oldv)
+        oldv = self.q.get((state, action), 0.0)
+        self.q[(state, action)] = oldv + self.alpha * (value - oldv)
+
